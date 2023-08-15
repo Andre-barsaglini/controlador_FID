@@ -54,8 +54,8 @@ bool closeAfterRec = false; // o host fecha o socket apos receber a mensagem
 bool echo = false;          // a cada comando recebido devolve o comando
 bool use_LDAC = true;       // utiliza o LDAC para sincronizar as saidas
 
-char mensagemTcpIn[64] = "";   // variavel global com a mensagem recebiada via TCP
-char mensagemTcpOut[64] = "0"; // ultima mensagem enviada via TCP
+char mensagemTcpIn[35] = "";   // variavel global com a mensagem recebiada via TCP
+char mensagemTcpOut[35] = "0"; // ultima mensagem enviada via TCP
 int valorRecebido = 1;         // armazena o valor recebido via TCP em um int
 char mode = 'd';               // modo de saida selecionado
 
@@ -63,7 +63,6 @@ char mode = 'd';               // modo de saida selecionado
 TaskHandle_t taskTcp, taskCheckConn, taskRPM;
 void taskTcpCode(void *parameter);        // faz a comunicação via socket
 void taskCheckConnCode(void *parameters); // checa periodicamente o wifi e verifica se tem atualização
-void taskRPMCode(void *parameters);       // controla o inversor de frequencia
 
 // funcoes
 void setupPins();     // inicialização das saidas digitais e do SPI
@@ -145,20 +144,6 @@ void taskTcpCode(void *parameters)
   }
 }
 
-void taskRPMCode(void *parameters)
-{
-  if (mode == 'a')
-  {
-    RPMAnalogico();
-    vTaskDelete(NULL);
-  }
-  else if (mode == 'd')
-  {
-    RPMDigital();
-    vTaskDelete(NULL);
-  }
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Funções
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -237,49 +222,49 @@ void connectWiFi()
   }
 }
 
-void checkValue()
-{
-  if (strcmp(mensagemTcpIn, "a\r") == 0)
-  {
-    mensagemTcpOut[0] = '2';
-    cl.print(mensagemTcpOut);
-    mode = 'a';
-  }
-  else if (strcmp(mensagemTcpIn, "d\r") == 0)
-  {
-    mensagemTcpOut[0] = '2';
-    cl.print(mensagemTcpOut);
-    mode = 'd';
-  }
-  else if (strcmp(mensagemTcpIn, "s\r") == 0)
-  {
-    mensagemTcpOut[0] = '4';
-    cl.print(mensagemTcpOut);
-    RPMStop();
-  }
-  else if (strcmp(mensagemTcpIn, "r\r") == 0)
-  {
-    mensagemTcpOut[0] = '5';
-    cl.print(mensagemTcpOut);
-    RPMStart();
-  }
-  else if (atoi(mensagemTcpIn) < 9 && atoi(mensagemTcpIn) > 0 && mode == 'd')
-  {
-    valorRecebido = atoi(mensagemTcpIn);
-    mensagemTcpOut[0] = '0';
-    cl.print(mensagemTcpOut);
-    xTaskCreatePinnedToCore(taskRPMCode, "task RPM", 1000, NULL, 1, &taskRPM, coreTask);
-  }
-  else if (atoi(mensagemTcpIn) < 257 && atoi(mensagemTcpIn) > 0 && mode == 'a')
-  {
-    valorRecebido = atoi(mensagemTcpIn);
-    mensagemTcpOut[0] = '0';
-    cl.print(mensagemTcpOut);
-    xTaskCreatePinnedToCore(taskRPMCode, "task RPM", 1000, NULL, 1, &taskRPM, coreTask);
-  }
-  else
-  {
-    mensagemTcpOut[0] = '1';
-    cl.print(mensagemTcpOut);
-  }
-}
+// void checkValue()
+// {
+//   if (strcmp(mensagemTcpIn, "a\r") == 0)
+//   {
+//     mensagemTcpOut[0] = '2';
+//     cl.print(mensagemTcpOut);
+//     mode = 'a';
+//   }
+//   else if (strcmp(mensagemTcpIn, "d\r") == 0)
+//   {
+//     mensagemTcpOut[0] = '2';
+//     cl.print(mensagemTcpOut);
+//     mode = 'd';
+//   }
+//   else if (strcmp(mensagemTcpIn, "s\r") == 0)
+//   {
+//     mensagemTcpOut[0] = '4';
+//     cl.print(mensagemTcpOut);
+//     RPMStop();
+//   }
+//   else if (strcmp(mensagemTcpIn, "r\r") == 0)
+//   {
+//     mensagemTcpOut[0] = '5';
+//     cl.print(mensagemTcpOut);
+//     RPMStart();
+//   }
+//   else if (atoi(mensagemTcpIn) < 9 && atoi(mensagemTcpIn) > 0 && mode == 'd')
+//   {
+//     valorRecebido = atoi(mensagemTcpIn);
+//     mensagemTcpOut[0] = '0';
+//     cl.print(mensagemTcpOut);
+//     xTaskCreatePinnedToCore(taskRPMCode, "task RPM", 1000, NULL, 1, &taskRPM, coreTask);
+//   }
+//   else if (atoi(mensagemTcpIn) < 257 && atoi(mensagemTcpIn) > 0 && mode == 'a')
+//   {
+//     valorRecebido = atoi(mensagemTcpIn);
+//     mensagemTcpOut[0] = '0';
+//     cl.print(mensagemTcpOut);
+//     xTaskCreatePinnedToCore(taskRPMCode, "task RPM", 1000, NULL, 1, &taskRPM, coreTask);
+//   }
+//   else
+//   {
+//     mensagemTcpOut[0] = '1';
+//     cl.print(mensagemTcpOut);
+//   }
+// }
