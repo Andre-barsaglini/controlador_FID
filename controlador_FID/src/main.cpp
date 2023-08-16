@@ -30,9 +30,7 @@ int CS_SPI[]{CSA, CS1, CS2, CS3, CS4, CS5, CS6, CS7, CS8};
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // buffers
-#define BUFFERLEN 34 // tamanho em bytes do buffer que armazena a mensagem recebida
-#define EOM_CH 'I'   // caractere de fim da mensagem. Como utilziamos 8 canais a proxima letra I
-// 34 bytes acomoda o padrão "WA255B255C25D255E255F255G255H255I"
+#define BUFFERLEN 35 // tamanho em bytes do buffer que armazena a mensagem recebida
 
 // rede e socket. credenciais do wifi devem ser mantidas no arquivo credentials.h
 #define HOSTNAME "controlador_FID"    // wireless
@@ -54,10 +52,9 @@ bool closeAfterRec = false; // o host fecha o socket apos receber a mensagem
 bool echo = false;          // a cada comando recebido devolve o comando
 bool use_LDAC = true;       // utiliza o LDAC para sincronizar as saidas
 
-char mensagemTcpIn[35] = "";   // variavel global com a mensagem recebiada via TCP
-char mensagemTcpOut[35] = "0"; // ultima mensagem enviada via TCP
-int valorRecebido = 1;         // armazena o valor recebido via TCP em um int
-char mode = 'd';               // modo de saida selecionado
+char mensagemTcpIn[BUFFERLEN] = "";   // variavel global com a mensagem recebiada via TCP
+char mensagemTcpOut[BUFFERLEN] = "0"; // ultima mensagem enviada via TCP
+int valorRecebido = 1;                // armazena o valor recebido via TCP em um int
 
 // tasks
 TaskHandle_t taskTcp, taskCheckConn, taskRPM;
@@ -70,7 +67,15 @@ void setupWireless(); // inicialização do wireless e do update OTA
 void setupOTA();      // inicializa o serviço de upload OTA do codigo
 void launchTasks();   // dispara as tasks.
 void connectWiFi();   // conecta o wifi. é repetida via tasks.
-void checkValue();    // avalia a mensagem recebida via tcp e ajusata as saidas
+void evaluate();      // identifica o comando, checa se houve mudança na string que armazena a entrada com relação ao estado atual
+void changedac();     // atualiza os valores dos dacs
+void report();        // devolve o valor do ADC
+void erro();          // função de teste
+
+// Variaveis
+
+char estado_DACs[] = "WA000B000C000D000E000F000G000H000\0";
+char estado_ADC[] = "RA000B000C000D000E000F000G000H000\0";
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // SETUP e LOOP (arduino default)
@@ -133,7 +138,7 @@ void taskTcpCode(void *parameters)
         {
           cl.stop();
         }
-        checkValue();
+        evaluate();
       }
     }
     else
@@ -175,7 +180,7 @@ void setupWireless()
 
 void setupOTA()
 {
-  ArduinoOTA.setHostname("Ventilador");
+  ArduinoOTA.setHostname(HOSTNAME);
   // No authentication by default
   // ArduinoOTA.setPassword("admin");
   ArduinoOTA.onStart([]()
@@ -208,7 +213,6 @@ void launchTasks()
   delay(2000);
   xTaskCreatePinnedToCore(taskCheckConnCode, "conexao wifi", 5000, NULL, 1, &taskCheckConn, CONFIG_ARDUINO_RUNNING_CORE);
   xTaskCreatePinnedToCore(taskTcpCode, "task TCP", 2000, NULL, 1, &taskTcp, CONFIG_ARDUINO_RUNNING_CORE);
-  // pot();
 }
 
 void connectWiFi()
@@ -222,6 +226,40 @@ void connectWiFi()
   }
 }
 
+void evaluate()
+{
+  if (strncmp(mensagemTcpIn, "W", 1) == 0)
+  {
+    if (strncmp(mensagemTcpIn, estado_DACs, BUFFERLEN) != 0)
+    {
+      strncpy(estado_DACs, mensagemTcpIn, BUFFERLEN);
+      changedac();
+    }
+  }
+  else if (strncmp(mensagemTcpIn, "R", 1) == 0)
+  {
+    report();
+  }
+  else
+  {
+    erro();
+  }
+}
+
+void changedac()
+{
+  cl.print(estado_DACs);
+}
+
+void report()
+{
+  cl.print(estado_ADC);
+}
+
+void erro()
+{
+  cl.print("comando não reconhecido");
+}
 // void checkValue()
 // {
 //   if (strcmp(mensagemTcpIn, "a\r") == 0)
