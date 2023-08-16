@@ -1,1 +1,2 @@
-
+#define SSID ""
+#define PASS ""
