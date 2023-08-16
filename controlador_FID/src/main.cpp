@@ -1,9 +1,9 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <SPI.h>
-#include <WiFiUdp.h>
+#include <WiFiUdp.h> // Utilizado somente em update OTA
 #include <ArduinoOTA.h>
-#include "credentials.h"
+#include "credentials.h" // somente armazena SSID e PASS. rede e senha respectivamente.
+#include <MCP492X.h>     // biblioteca dos DACs
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //   SETUP DE HARDWARE
@@ -18,19 +18,23 @@
 #define CS6 25
 #define CS7 33
 #define CS8 32
-#define CSA 22 // ADC
+#define CSA 22  // ADC
+#define Dummy 5 // pino para usar como chip select na biblioteca do MCP
 
 int CS_SPI[]{CSA, CS1, CS2, CS3, CS4, CS5, CS6, CS7, CS8};
 
 // Pino de latch. Utilizado para alteração simultanea dos dacs. ativa as saídas quando low
 #define LDAC 15
 
+// Setup do DAC
+MCP492X myDac(Dummy);
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //   SETUP DE COMUNICAÇÃO
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // buffers
-#define BUFFERLEN 35 // tamanho em bytes do buffer que armazena a mensagem recebida
+#define BUFFERLEN 34 // tamanho em bytes do buffer que armazena a mensagem recebida
 
 // rede e socket. credenciais do wifi devem ser mantidas no arquivo credentials.h
 #define HOSTNAME "controlador_FID"    // wireless
@@ -49,12 +53,12 @@ WiFiClient cl;                        // socket
 // Configurações e modos
 int const coreTask = 0;     // core onde rodarão as tasks nao relacionadas a comunicação (DACs e ADCs)
 bool closeAfterRec = false; // o host fecha o socket apos receber a mensagem
-bool echo = false;          // a cada comando recebido devolve o comando
-bool use_LDAC = true;       // utiliza o LDAC para sincronizar as saidas
+// bool echo = false;          // a cada comando recebido devolve o comando
+bool use_LDAC = true; // utiliza o LDAC para sincronizar as saidas
 
-char mensagemTcpIn[BUFFERLEN] = "";   // variavel global com a mensagem recebiada via TCP
-char mensagemTcpOut[BUFFERLEN] = "0"; // ultima mensagem enviada via TCP
-int valorRecebido = 1;                // armazena o valor recebido via TCP em um int
+char mensagemTcpIn[BUFFERLEN] = "";  // variavel global com a mensagem recebiada via TCP
+char mensagemTcpOut[BUFFERLEN] = ""; // ultima mensagem enviada via TCP
+int valorRecebido = 1;               // armazena o valor recebido via TCP em um int
 
 // tasks
 TaskHandle_t taskTcp, taskCheckConn, taskRPM;
@@ -74,8 +78,8 @@ void erro();          // função de teste
 
 // Variaveis
 
-char estado_DACs[] = "WA000B000C000D000E000F000G000H000\0";
-char estado_ADC[] = "RA000B000C000D000E000F000G000H000\0";
+char estado_DACs[] = "WA000B000C000D000E000F000G000H000"; // valor inicial só para referência e leitura do código
+char estado_ADC[] = "RA000B000C000D000E000F000G000H000";  // valor inicial só para referência e leitura do código
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // SETUP e LOOP (arduino default)
@@ -83,10 +87,11 @@ char estado_ADC[] = "RA000B000C000D000E000F000G000H000\0";
 
 void setup()
 {
-  setupPins();
-  setupWireless();
-  setupOTA();
-  launchTasks();
+  setupPins();     // Seta os pinos
+  myDac.begin();   // inicializa os dacs
+  setupWireless(); // Seta o WIreless
+  setupOTA();      // Inicia os scripts para programar o esp32 via rede
+  launchTasks();   // Inicia tudo que roda via task (checagem de coxexão, recebimento de menwsagem, atuação dos DACs e ADC)
 }
 
 void loop()
@@ -98,6 +103,7 @@ void loop()
 // TASKS
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// Checa a conecção, mantem o serviço de upload por wifi. periodo definido em PERIODO
 void taskCheckConnCode(void *parameters)
 {
   for (;;)
@@ -112,6 +118,8 @@ void taskCheckConnCode(void *parameters)
   }
 }
 
+// Recebe a mensagem via TCP, delimita o tamanho maximo de mensagem e elimina o resto. dentro de um socket aberto podem ser feitas varias leituras/envios
+// contudo se o socket for fechado pode ser necessário ajustar o vtaskdelay no final da função
 void taskTcpCode(void *parameters)
 {
   for (;;)
@@ -124,13 +132,24 @@ void taskTcpCode(void *parameters)
         char bufferEntrada[BUFFERLEN] = "";
         while (cl.available() > 0)
         {
-          char z = cl.read();
-          bufferEntrada[i] = z;
-          i++;
-          if (z == '\r')
+          if (i < BUFFERLEN - 1)
           {
-            bufferEntrada[i] = '\0';
+            char z = cl.read();
+            bufferEntrada[i] = z;
             i++;
+            if (z == '\r')
+            {
+              bufferEntrada[i] = '\0';
+              i++;
+            }
+          }
+          else
+          {
+            bufferEntrada[BUFFERLEN] = '\0';
+            while (cl.available() > 0)
+            {
+              char z = cl.read();
+            }
           }
         }
         strncpy(mensagemTcpIn, bufferEntrada, i);
@@ -153,9 +172,11 @@ void taskTcpCode(void *parameters)
 // Funções
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// inicializa os pinos do microcontrolador
 void setupPins()
 {
   pinMode(LDAC, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
   for (int i = 0; i < 9; i++)
   {
     pinMode(CS_SPI[i], OUTPUT);
@@ -178,6 +199,7 @@ void setupWireless()
   sv.begin(); // inicia o server para o socket
 }
 
+// esta função de atualização OTA provavelmente foi obtida e explicada no video do Andreas Spiess
 void setupOTA()
 {
   ArduinoOTA.setHostname(HOSTNAME);
@@ -208,9 +230,10 @@ void setupOTA()
   ArduinoOTA.begin();
 }
 
+// Inicia as tasks. As tasks de comunicação (Wifi) devem rodar no core que roda o arduino (CONFIG_ARDUINO_RUNNING_CORE)
 void launchTasks()
 {
-  delay(2000);
+  // delay(2000);
   xTaskCreatePinnedToCore(taskCheckConnCode, "conexao wifi", 5000, NULL, 1, &taskCheckConn, CONFIG_ARDUINO_RUNNING_CORE);
   xTaskCreatePinnedToCore(taskTcpCode, "task TCP", 2000, NULL, 1, &taskTcp, CONFIG_ARDUINO_RUNNING_CORE);
 }
@@ -222,7 +245,10 @@ void connectWiFi()
   WiFi.begin(SSID, PASS);
   while (WiFi.status() != WL_CONNECTED)
   {
-    delay(1000);
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(500);
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(500);
   }
 }
 
@@ -258,8 +284,9 @@ void report()
 
 void erro()
 {
-  cl.print("comando não reconhecido");
+  cl.print("\ncomando não reconhecido");
 }
+
 // void checkValue()
 // {
 //   if (strcmp(mensagemTcpIn, "a\r") == 0)

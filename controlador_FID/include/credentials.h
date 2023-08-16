@@ -1,2 +1,2 @@
 #define SSID "tunel"
-#define PASS "gventogvento"
+#define PASS "gvento123"
