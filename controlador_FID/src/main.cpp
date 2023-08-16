@@ -199,7 +199,7 @@ void setupWireless()
   sv.begin(); // inicia o server para o socket
 }
 
-// esta função de atualização OTA provavelmente foi obtida e explicada no video do Andreas Spiess
+// esta função de atualização OTA provavelmente foi obtida e explicada no video do Andreas Spiess.
 void setupOTA()
 {
   ArduinoOTA.setHostname(HOSTNAME);
