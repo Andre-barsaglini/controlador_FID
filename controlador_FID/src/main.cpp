@@ -284,7 +284,7 @@ void report()
 
 void erro()
 {
-  cl.print("\ncomando não reconhecido");
+  cl.print("\ncomando não reconhecido"); //
 }
 
 // void checkValue()
