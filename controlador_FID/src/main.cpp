@@ -53,8 +53,8 @@ WiFiClient cl;                        // socket
 // Configurações e modos
 int const coreTask = 0;     // core onde rodarão as tasks nao relacionadas a comunicação (DACs e ADCs)
 bool closeAfterRec = false; // o host fecha o socket apos receber a mensagem
-// bool echo = false;          // a cada comando recebido devolve o comando
-bool use_LDAC = true; // utiliza o LDAC para sincronizar as saidas
+bool echo = true;           // a cada comando recebido devolve o comando
+bool use_LDAC = true;       // utiliza o LDAC para sincronizar as saidas
 
 char mensagemTcpIn[BUFFERLEN] = "";  // variavel global com a mensagem recebiada via TCP
 char mensagemTcpOut[BUFFERLEN] = ""; // ultima mensagem enviada via TCP
@@ -66,20 +66,26 @@ void taskTcpCode(void *parameter);        // faz a comunicação via socket
 void taskCheckConnCode(void *parameters); // checa periodicamente o wifi e verifica se tem atualização
 
 // funcoes
-void setupPins();     // inicialização das saidas digitais e do SPI
-void setupWireless(); // inicialização do wireless e do update OTA
-void setupOTA();      // inicializa o serviço de upload OTA do codigo
-void launchTasks();   // dispara as tasks.
-void connectWiFi();   // conecta o wifi. é repetida via tasks.
-void evaluate();      // identifica o comando, checa se houve mudança na string que armazena a entrada com relação ao estado atual
-void changedac();     // atualiza os valores dos dacs
-void report();        // devolve o valor do ADC
-void erro();          // função de teste
-
-// Variaveis
+void setupPins();                     // inicialização das saidas digitais e do SPI
+void setupWireless();                 // inicialização do wireless e do update OTA
+void setupOTA();                      // inicializa o serviço de upload OTA do codigo
+void launchTasks();                   // dispara as tasks.
+void connectWiFi();                   // conecta o wifi. é repetida via tasks.
+void changedacs();                    // atualiza os valores dos dacs
+void report();                        // devolve o valor do ADC
+void stageChanges();                  // verifica se a mensagem é consistente com o protocolo adotado e agenda atualizações nos dacs
+void printChanges();                  //
+void evaluate();                      // identifica o comando, checa se houve mudança na string que armazena a entrada com relação ao estado atual
+void dacUpdate(int canal, int valor); // ajusta os dacs individualmente
 
 char estado_DACs[] = "WA000B000C000D000E000F000G000H000"; // valor inicial só para referência e leitura do código
-char estado_ADC[] = "RA000B000C000D000E000F000G000H000";  // valor inicial só para referência e leitura do código
+char estado_ADC[] = "000,000,000,000,000,000,000,000";    // valor inicial só para referência e leitura do código
+char estado_Update[3][9] =
+    {
+        {0, 1, 2, 3, 4, 5, 6, 7, 8},
+        {0, 0, 0, 0, 0, 0, 0, 0, 0},
+        {0, 0, 0, 0, 0, 0, 0, 0, 0}};
+// canal, update status (1 = update), valor
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // SETUP e LOOP (arduino default)
@@ -114,6 +120,7 @@ void taskCheckConnCode(void *parameters)
       ArduinoOTA.handle();
       continue;
     }
+    digitalWrite(LED_BUILTIN, LOW);
     connectWiFi();
   }
 }
@@ -245,9 +252,9 @@ void connectWiFi()
   WiFi.begin(SSID, PASS);
   while (WiFi.status() != WL_CONNECTED)
   {
-    digitalWrite(LED_BUILTIN, HIGH);
-    delay(500);
     digitalWrite(LED_BUILTIN, LOW);
+    delay(500);
+    digitalWrite(LED_BUILTIN, HIGH);
     delay(500);
   }
 }
@@ -258,8 +265,7 @@ void evaluate()
   {
     if (strncmp(mensagemTcpIn, estado_DACs, BUFFERLEN) != 0)
     {
-      strncpy(estado_DACs, mensagemTcpIn, BUFFERLEN);
-      changedac();
+      changedacs();
     }
   }
   else if (strncmp(mensagemTcpIn, "R", 1) == 0)
@@ -268,13 +274,21 @@ void evaluate()
   }
   else
   {
-    erro();
+    cl.print("\ncomando não reconhecido\nA mensagem deve começar com W para variar a corrente e R para leitura"); //
   }
 }
 
-void changedac()
+void changedacs()
 {
-  cl.print(estado_DACs);
+  stageChanges();
+  if (echo)
+  {
+    cl.print("\n");
+    cl.print(estado_DACs);
+  }
+  dacUpdate(1, 0);
+  dacUpdate(3, 111);
+  dacUpdate(8, 255);
 }
 
 void report()
@@ -282,10 +296,101 @@ void report()
   cl.print(estado_ADC);
 }
 
-void erro()
+void stageChanges()
 {
-  cl.print("\ncomando não reconhecido"); //
+  bool erro = false;
+  char letras[] = "ABCDEFGH";
+  char valorSTR[] = "A000";
+  int valorInt = 0;
+  for (int canal = 0; canal <= 7; canal++)
+  {
+    if (strncmp(mensagemTcpIn + (4 * canal + 1), letras + (canal), 1) != 0)
+    {
+      erro = true;
+      cl.print("\nE2:mensagem fora do padrão. Erro nas letras\nRecebido: ");
+      cl.print(mensagemTcpIn);
+      cl.print("\nFormato esperado: WA000B000C000D000E000F000G000H000\nAs letras devem ser de A a H e nessa ordem. as unicas variáveis são os números ");
+      break;
+    }
+    strncpy(valorSTR, mensagemTcpIn + (4 * canal + 1), 4);
+    valorInt = 0;
+    for (int digito = 0; digito < 3; digito++)
+    {
+      char valorSTRBuffer[] = "0";
+      strncpy(valorSTRBuffer, valorSTR + 1 + digito, 1);
+      if (isalpha(valorSTRBuffer[0]))
+      {
+        erro = true;
+        cl.print("\nE3:mensagem fora do padrão. valores de ajuste dos dacs precisam ser numeros\nRcebido: ");
+        cl.print(mensagemTcpIn);
+        cl.print("\nErro na parte: ");
+        cl.print(valorSTR);
+        break;
+      }
+      valorInt += atoi(valorSTRBuffer) * 100 / pow(10, digito);
+    }
+    if (erro)
+    {
+      break;
+    }
+    if (valorInt < 0 || valorInt > 255)
+    {
+      erro = true;
+      cl.print("\nE4:mensagem fora do padrão. valores precisam estar entre 0 e 255\nRcebido: ");
+      cl.print(mensagemTcpIn);
+      cl.print("\nErro na parte: ");
+      cl.print(valorSTR);
+      break;
+    }
+
+    if (estado_Update[2][canal + 1] != valorInt)
+    {
+      estado_Update[1][canal + 1] = 1;
+      estado_Update[2][canal + 1] = valorInt;
+    }
+    else
+    {
+      estado_Update[1][canal + 1] = 0;
+    }
+  }
+  if (!erro)
+  {
+    strncpy(estado_DACs, mensagemTcpIn, BUFFERLEN);
+    printChanges();
+  }
 }
+
+void printChanges()
+{
+  for (int i = 1; i < 9; i++)
+  {
+    char itoabuff[] = "000";
+    cl.print("\nCanal ");
+    cl.print(itoa(estado_Update[0][i], itoabuff, 10));
+    cl.print("\nestado: ");
+    cl.print(itoa(estado_Update[1][i], itoabuff, 10));
+    cl.print("\nValor: ");
+    cl.print(itoa(estado_Update[2][i], itoabuff, 10));
+  }
+}
+
+void dacUpdate(int canal, int valor)
+{
+  digitalWrite(CS_SPI[canal], LOW);
+  myDac.analogWrite(valor);
+  digitalWrite(CS_SPI[canal], HIGH);
+}
+
+// cl.print("\nupdating...");
+// cl.print(canal);
+// cl.print("\nvalor...");
+// cl.print(valor);
+// char itoabuff2[] = "000";
+// cl.print(itoa(canal, itoabuff2, 10));
+// void dacVerify ()
+// {
+
+// }
 
 // void checkValue()
 // {
