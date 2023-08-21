@@ -51,10 +51,10 @@ WiFiClient cl;                        // socket
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Configurações e modos
-int const coreTask = 1;     // core onde rodarão as tasks nao relacionadas a comunicação (DACs e ADCs)
+int const coreTask = 0;     // core onde rodarão as tasks nao relacionadas a comunicação (DACs e ADCs)
 bool closeAfterRec = false; // o host fecha o socket apos receber a mensagem
 bool echo = true;           // a cada comando recebido devolve o comando
-bool use_LDAC = true;       // utiliza o LDAC para sincronizar as saidas
+bool use_LDAC = false;      // utiliza o LDAC para sincronizar as saidas
 
 char mensagemTcpIn[BUFFERLEN] = "";  // variavel global com a mensagem recebiada via TCP
 char mensagemTcpOut[BUFFERLEN] = ""; // ultima mensagem enviada via TCP
@@ -94,6 +94,7 @@ char estado_Update[3][9] =
 
 void setup()
 {
+  Serial.begin(9600);
   setupPins();     // Seta os pinos
   myDac.begin();   // inicializa os dacs
   setupWireless(); // Seta o WIreless
@@ -178,19 +179,28 @@ void taskTcpCode(void *parameters)
 
 void taskUpdateDacs(void *parameters)
 {
-  for(int canal=1; canal<9; canal++)
+  if (use_LDAC)
   {
-    if(use_LDAC) {digitalWrite(LDAC, HIGH);}
-    else{digitalWrite(LDAC, LOW);}
-    if(estado_Update[1][canal]==1)
+    digitalWrite(LDAC, HIGH);
+  }
+  else
+  {
+    digitalWrite(LDAC, LOW);
+  }
+  for (int canal = 1; canal < 9; canal++)
+  {
+    if (estado_Update[1][canal] == 1)
     {
       dacUpdate(canal, estado_Update[2][canal]);
+      estado_Update[1][canal] = 0;
     }
-    if(use_LDAC) {digitalWrite(LDAC, LOW);};
-    estado_Update[1][canal] = 0;
   }
+  if (use_LDAC)
+  {
+    digitalWrite(LDAC, LOW);
+  };
+  vTaskDelete(NULL);
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Funções
@@ -205,15 +215,18 @@ void setupPins()
   {
     pinMode(CS_SPI[i], OUTPUT);
   }
-  if(use_LDAC) {digitalWrite(LDAC, HIGH);}
-  else{digitalWrite(LDAC, LOW);}
+  if (use_LDAC)
+  {
+    digitalWrite(LDAC, HIGH);
+  }
+  else
+  {
+    digitalWrite(LDAC, LOW);
+  }
   for (int i = 0; i < 9; i++)
   {
     digitalWrite(CS_SPI[i], HIGH);
   }
-  SPI.begin(); // inicializa o SPI
-  //delay(200);
-  //changeDacs();
 }
 
 void setupWireless()
@@ -298,11 +311,6 @@ void evaluate()
   }
 }
 
-void changeDacs()
-{
-  //xTaskCreatePinnedToCore(taskUpdateDacs, "taskDacs", 1000, NULL, 1, &taskDacs, coreTask);
-}
-
 void report()
 {
   cl.print(estado_ADC);
@@ -360,7 +368,6 @@ void stageChanges()
       estado_Update[2][canal + 1] = valorInt;
       estado_Update[1][canal + 1] = 1;
     }
-
   }
   if (!erro)
   {
@@ -384,9 +391,19 @@ void printChanges()
   }
 }
 
+void changeDacs()
+{
+  xTaskCreatePinnedToCore(taskUpdateDacs, "taskDacs", 1000, NULL, 1, &taskDacs, coreTask);
+}
+
 void dacUpdate(int canal, int valor)
 {
   digitalWrite(CS_SPI[canal], LOW);
+  delay(100);
   myDac.analogWrite(valor);
+  // Serial.print("\ncanal ");
+  // Serial.print(canal);
+  // Serial.print(" valor ");
+  // Serial.print(valor);
   digitalWrite(CS_SPI[canal], HIGH);
 }
