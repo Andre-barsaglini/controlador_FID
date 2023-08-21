@@ -34,7 +34,7 @@ MCP492X myDac(Dummy);
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // buffers
-#define BUFFERLEN 34 // tamanho em bytes do buffer que armazena a mensagem recebida
+#define BUFFERLEN 42 // tamanho em bytes do buffer que armazena a mensagem recebida
 
 // rede e socket. credenciais do wifi devem ser mantidas no arquivo credentials.h
 #define HOSTNAME "controlador_FID"    // wireless
@@ -79,9 +79,9 @@ void printChanges();                  //
 void evaluate();                      // identifica o comando, checa se houve mudança na string que armazena a entrada com relação ao estado atual
 void dacUpdate(int canal, int valor); // ajusta os dacs individualmente
 
-char estado_DACs[] = "WA000B000C000D000E000F000G000H000"; // valor inicial só para referência e leitura do código
-char estado_ADC[] = "000,000,000,000,000,000,000,000";    // valor inicial só para referência e leitura do código
-char estado_Update[3][9] =
+char estado_DACs[] = "WA0000B0000C0000D0000E0000F0000G0000H0000"; // valor inicial só para referência e leitura do código
+char estado_ADC[] = "0000,0000,0000,0000,0000,0000,0000,0000,,";    // valor inicial só para referência e leitura do código
+int estado_Update[3][9] =
     {
         {0, 1, 2, 3, 4, 5, 6, 7, 8},
         {1, 1, 1, 1, 1, 1, 1, 1, 1},
@@ -94,9 +94,10 @@ char estado_Update[3][9] =
 
 void setup()
 {
-  Serial.begin(9600);
+  //Serial.begin(9600); //debug
   setupPins();     // Seta os pinos
   myDac.begin();   // inicializa os dacs
+  changeDacs();     // Zera os dacs
   setupWireless(); // Seta o WIreless
   setupOTA();      // Inicia os scripts para programar o esp32 via rede
   launchTasks();   // Inicia tudo que roda via task (checagem de coxexão, recebimento de menwsagem, atuação dos DACs e ADC)
@@ -320,21 +321,25 @@ void stageChanges()
 {
   bool erro = false;
   char letras[] = "ABCDEFGH";
-  char valorSTR[] = "A000";
+  char valorSTR[] = "A0000";
   int valorInt = 0;
+  //cl.print("\nmsgtcp");
+  //cl.print(mensagemTcpIn);
   for (int canal = 0; canal <= 7; canal++)
   {
-    if (strncmp(mensagemTcpIn + (4 * canal + 1), letras + (canal), 1) != 0)
+    if (strncmp(mensagemTcpIn + (5 * canal + 1), letras + (canal), 1) != 0)
     {
       erro = true;
       cl.print("\nE2:mensagem fora do padrão. Erro nas letras\nRecebido: ");
       cl.print(mensagemTcpIn);
-      cl.print("\nFormato esperado: WA000B000C000D000E000F000G000H000\nAs letras devem ser de A a H e nessa ordem. as unicas variáveis são os números ");
+      cl.print("\nFormato esperado: WA0000B0000C0000D0000E0000F0000G0000H0000\nAs letras devem ser de A a H e nessa ordem. as unicas variáveis são os números ");
       break;
     }
-    strncpy(valorSTR, mensagemTcpIn + (4 * canal + 1), 4);
+    strncpy(valorSTR, mensagemTcpIn + (5 * canal + 1), 5);
+    //cl.print("\nvalorSTR");
+    //cl.print(valorSTR);
     valorInt = 0;
-    for (int digito = 0; digito < 3; digito++)
+    for (int digito = 0; digito < 4; digito++)
     {
       char valorSTRBuffer[] = "0";
       strncpy(valorSTRBuffer, valorSTR + 1 + digito, 1);
@@ -347,16 +352,18 @@ void stageChanges()
         cl.print(valorSTR);
         break;
       }
-      valorInt += atoi(valorSTRBuffer) * 100 / pow(10, digito);
+      valorInt += atoi(valorSTRBuffer) * 1000 / pow(10, digito);
     }
     if (erro)
     {
       break;
     }
-    if (valorInt < 0 || valorInt > 255)
+    //cl.print("\nvalorint");
+    //cl.print(valorInt);
+    if (valorInt < 0 || valorInt > 4095)
     {
       erro = true;
-      cl.print("\nE4:mensagem fora do padrão. valores precisam estar entre 0 e 255\nRcebido: ");
+      cl.print("\nE4:mensagem fora do padrão. valores precisam estar entre 0 e 4095\nRcebido: ");
       cl.print(mensagemTcpIn);
       cl.print("\nErro na parte: ");
       cl.print(valorSTR);
@@ -381,13 +388,18 @@ void printChanges()
 {
   for (int i = 1; i < 9; i++)
   {
-    char itoabuff[] = "000";
+    char itoabuff[] = "0000";
     cl.print("\nCanal: ");
     cl.print(itoa(estado_Update[0][i], itoabuff, 10));
     cl.print("     estado: ");
     cl.print(itoa(estado_Update[1][i], itoabuff, 10));
     cl.print("     Valor: ");
     cl.print(itoa(estado_Update[2][i], itoabuff, 10));
+    int valor= estado_Update[2][i];
+    Serial.println("canal: ");
+    Serial.println(i);
+    Serial.println("valor: ");
+    Serial.println(valor);
   }
 }
 
