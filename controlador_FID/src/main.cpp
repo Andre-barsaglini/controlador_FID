@@ -51,7 +51,7 @@ WiFiClient cl;                        // socket
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Configurações e modos
-int const coreTask = 0;     // core onde rodarão as tasks nao relacionadas a comunicação (DACs e ADCs)
+int const coreTask = 1;     // core onde rodarão as tasks nao relacionadas a comunicação (DACs e ADCs)
 bool closeAfterRec = false; // o host fecha o socket apos receber a mensagem
 bool echo = true;           // a cada comando recebido devolve o comando
 bool use_LDAC = true;       // utiliza o LDAC para sincronizar as saidas
@@ -61,9 +61,10 @@ char mensagemTcpOut[BUFFERLEN] = ""; // ultima mensagem enviada via TCP
 int valorRecebido = 1;               // armazena o valor recebido via TCP em um int
 
 // tasks
-TaskHandle_t taskTcp, taskCheckConn, taskRPM;
+TaskHandle_t taskTcp, taskCheckConn, taskDacs;
 void taskTcpCode(void *parameter);        // faz a comunicação via socket
 void taskCheckConnCode(void *parameters); // checa periodicamente o wifi e verifica se tem atualização
+void taskUpdateDacs(void *parameters);    // task que faz a alteração nos dacs
 
 // funcoes
 void setupPins();                     // inicialização das saidas digitais e do SPI
@@ -71,7 +72,7 @@ void setupWireless();                 // inicialização do wireless e do update
 void setupOTA();                      // inicializa o serviço de upload OTA do codigo
 void launchTasks();                   // dispara as tasks.
 void connectWiFi();                   // conecta o wifi. é repetida via tasks.
-void changedacs();                    // atualiza os valores dos dacs
+void changeDacs();                    // atualiza os valores dos dacs
 void report();                        // devolve o valor do ADC
 void stageChanges();                  // verifica se a mensagem é consistente com o protocolo adotado e agenda atualizações nos dacs
 void printChanges();                  //
@@ -83,7 +84,7 @@ char estado_ADC[] = "000,000,000,000,000,000,000,000";    // valor inicial só p
 char estado_Update[3][9] =
     {
         {0, 1, 2, 3, 4, 5, 6, 7, 8},
-        {0, 0, 0, 0, 0, 0, 0, 0, 0},
+        {1, 1, 1, 1, 1, 1, 1, 1, 1},
         {0, 0, 0, 0, 0, 0, 0, 0, 0}};
 // canal, update status (1 = update), valor
 
@@ -175,6 +176,22 @@ void taskTcpCode(void *parameters)
   }
 }
 
+void taskUpdateDacs(void *parameters)
+{
+  for(int canal=1; canal<9; canal++)
+  {
+    if(use_LDAC) {digitalWrite(LDAC, HIGH);}
+    else{digitalWrite(LDAC, LOW);}
+    if(estado_Update[1][canal]==1)
+    {
+      dacUpdate(canal, estado_Update[2][canal]);
+    }
+    if(use_LDAC) {digitalWrite(LDAC, LOW);};
+    estado_Update[1][canal] = 0;
+  }
+}
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Funções
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -188,12 +205,15 @@ void setupPins()
   {
     pinMode(CS_SPI[i], OUTPUT);
   }
-  digitalWrite(LDAC, HIGH);
+  if(use_LDAC) {digitalWrite(LDAC, HIGH);}
+  else{digitalWrite(LDAC, LOW);}
   for (int i = 0; i < 9; i++)
   {
     digitalWrite(CS_SPI[i], HIGH);
   }
   SPI.begin(); // inicializa o SPI
+  //delay(200);
+  //changeDacs();
 }
 
 void setupWireless()
@@ -265,7 +285,7 @@ void evaluate()
   {
     if (strncmp(mensagemTcpIn, estado_DACs, BUFFERLEN) != 0)
     {
-      changedacs();
+      stageChanges();
     }
   }
   else if (strncmp(mensagemTcpIn, "R", 1) == 0)
@@ -278,17 +298,9 @@ void evaluate()
   }
 }
 
-void changedacs()
+void changeDacs()
 {
-  stageChanges();
-  if (echo)
-  {
-    cl.print("\n");
-    cl.print(estado_DACs);
-  }
-  dacUpdate(1, 0);
-  dacUpdate(3, 111);
-  dacUpdate(8, 255);
+  //xTaskCreatePinnedToCore(taskUpdateDacs, "taskDacs", 1000, NULL, 1, &taskDacs, coreTask);
 }
 
 void report()
@@ -345,18 +357,16 @@ void stageChanges()
 
     if (estado_Update[2][canal + 1] != valorInt)
     {
-      estado_Update[1][canal + 1] = 1;
       estado_Update[2][canal + 1] = valorInt;
+      estado_Update[1][canal + 1] = 1;
     }
-    else
-    {
-      estado_Update[1][canal + 1] = 0;
-    }
+
   }
   if (!erro)
   {
     strncpy(estado_DACs, mensagemTcpIn, BUFFERLEN);
     printChanges();
+    changeDacs();
   }
 }
 
@@ -365,11 +375,11 @@ void printChanges()
   for (int i = 1; i < 9; i++)
   {
     char itoabuff[] = "000";
-    cl.print("\nCanal ");
+    cl.print("\nCanal: ");
     cl.print(itoa(estado_Update[0][i], itoabuff, 10));
-    cl.print("\nestado: ");
+    cl.print("     estado: ");
     cl.print(itoa(estado_Update[1][i], itoabuff, 10));
-    cl.print("\nValor: ");
+    cl.print("     Valor: ");
     cl.print(itoa(estado_Update[2][i], itoabuff, 10));
   }
 }
@@ -380,61 +390,3 @@ void dacUpdate(int canal, int valor)
   myDac.analogWrite(valor);
   digitalWrite(CS_SPI[canal], HIGH);
 }
-
-// cl.print("\nupdating...");
-// cl.print(canal);
-// cl.print("\nvalor...");
-// cl.print(valor);
-// char itoabuff2[] = "000";
-// cl.print(itoa(canal, itoabuff2, 10));
-// void dacVerify ()
-// {
-
-// }
-
-// void checkValue()
-// {
-//   if (strcmp(mensagemTcpIn, "a\r") == 0)
-//   {
-//     mensagemTcpOut[0] = '2';
-//     cl.print(mensagemTcpOut);
-//     mode = 'a';
-//   }
-//   else if (strcmp(mensagemTcpIn, "d\r") == 0)
-//   {
-//     mensagemTcpOut[0] = '2';
-//     cl.print(mensagemTcpOut);
-//     mode = 'd';
-//   }
-//   else if (strcmp(mensagemTcpIn, "s\r") == 0)
-//   {
-//     mensagemTcpOut[0] = '4';
-//     cl.print(mensagemTcpOut);
-//     RPMStop();
-//   }
-//   else if (strcmp(mensagemTcpIn, "r\r") == 0)
-//   {
-//     mensagemTcpOut[0] = '5';
-//     cl.print(mensagemTcpOut);
-//     RPMStart();
-//   }
-//   else if (atoi(mensagemTcpIn) < 9 && atoi(mensagemTcpIn) > 0 && mode == 'd')
-//   {
-//     valorRecebido = atoi(mensagemTcpIn);
-//     mensagemTcpOut[0] = '0';
-//     cl.print(mensagemTcpOut);
-//     xTaskCreatePinnedToCore(taskRPMCode, "task RPM", 1000, NULL, 1, &taskRPM, coreTask);
-//   }
-//   else if (atoi(mensagemTcpIn) < 257 && atoi(mensagemTcpIn) > 0 && mode == 'a')
-//   {
-//     valorRecebido = atoi(mensagemTcpIn);
-//     mensagemTcpOut[0] = '0';
-//     cl.print(mensagemTcpOut);
-//     xTaskCreatePinnedToCore(taskRPMCode, "task RPM", 1000, NULL, 1, &taskRPM, coreTask);
-//   }
-//   else
-//   {
-//     mensagemTcpOut[0] = '1';
-//     cl.print(mensagemTcpOut);
-//   }
-// }
