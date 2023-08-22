@@ -80,7 +80,7 @@ void evaluate();                      // identifica o comando, checa se houve mu
 void dacUpdate(int canal, int valor); // ajusta os dacs individualmente
 
 char estado_DACs[] = "WA0000B0000C0000D0000E0000F0000G0000H0000"; // valor inicial só para referência e leitura do código
-char estado_ADC[] = "0000,0000,0000,0000,0000,0000,0000,0000,,";    // valor inicial só para referência e leitura do código
+char estado_ADC[] = "0000,0000,0000,0000,0000,0000,0000,0000,,";  // valor inicial só para referência e leitura do código
 int estado_Update[3][9] =
     {
         {0, 1, 2, 3, 4, 5, 6, 7, 8},
@@ -94,10 +94,10 @@ int estado_Update[3][9] =
 
 void setup()
 {
-  //Serial.begin(9600); //debug
+  // Serial.begin(9600); //debug
   setupPins();     // Seta os pinos
   myDac.begin();   // inicializa os dacs
-  changeDacs();     // Zera os dacs
+  changeDacs();    // Zera os dacs
   setupWireless(); // Seta o WIreless
   setupOTA();      // Inicia os scripts para programar o esp32 via rede
   launchTasks();   // Inicia tudo que roda via task (checagem de coxexão, recebimento de menwsagem, atuação dos DACs e ADC)
@@ -293,6 +293,7 @@ void connectWiFi()
   }
 }
 
+// verifica se a mensagem é para atualizar os dacs ou fazer a leitura do adc.
 void evaluate()
 {
   if (strncmp(mensagemTcpIn, "W", 1) == 0)
@@ -312,19 +313,20 @@ void evaluate()
   }
 }
 
+// leitura do ADC ***falta implementar***
 void report()
 {
   cl.print(estado_ADC);
 }
 
+// distribui os valores de entrada na matriz de estado_Update para que posteriormente os dacs sejam ajustados
 void stageChanges()
 {
   bool erro = false;
   char letras[] = "ABCDEFGH";
   char valorSTR[] = "A0000";
   int valorInt = 0;
-  //cl.print("\nmsgtcp");
-  //cl.print(mensagemTcpIn);
+
   for (int canal = 0; canal <= 7; canal++)
   {
     if (strncmp(mensagemTcpIn + (5 * canal + 1), letras + (canal), 1) != 0)
@@ -336,8 +338,7 @@ void stageChanges()
       break;
     }
     strncpy(valorSTR, mensagemTcpIn + (5 * canal + 1), 5);
-    //cl.print("\nvalorSTR");
-    //cl.print(valorSTR);
+
     valorInt = 0;
     for (int digito = 0; digito < 4; digito++)
     {
@@ -358,8 +359,7 @@ void stageChanges()
     {
       break;
     }
-    //cl.print("\nvalorint");
-    //cl.print(valorInt);
+
     if (valorInt < 0 || valorInt > 4095)
     {
       erro = true;
@@ -379,11 +379,12 @@ void stageChanges()
   if (!erro)
   {
     strncpy(estado_DACs, mensagemTcpIn, BUFFERLEN);
-    printChanges();
+    // printChanges();
     changeDacs();
   }
 }
 
+// devolve os valores da matriz de estado dos dacs via tcp
 void printChanges()
 {
   for (int i = 1; i < 9; i++)
@@ -395,7 +396,7 @@ void printChanges()
     cl.print(itoa(estado_Update[1][i], itoabuff, 10));
     cl.print("     Valor: ");
     cl.print(itoa(estado_Update[2][i], itoabuff, 10));
-    int valor= estado_Update[2][i];
+    int valor = estado_Update[2][i];
     Serial.println("canal: ");
     Serial.println(i);
     Serial.println("valor: ");
@@ -403,19 +404,17 @@ void printChanges()
   }
 }
 
+// gera a task que atualiza os dacs.
 void changeDacs()
 {
   xTaskCreatePinnedToCore(taskUpdateDacs, "taskDacs", 1000, NULL, 1, &taskDacs, coreTask);
 }
 
+// função que recebe o canal e valor para atualizar um dac individual.
 void dacUpdate(int canal, int valor)
 {
   digitalWrite(CS_SPI[canal], LOW);
-  delay(100);
+  // delay(100);
   myDac.analogWrite(valor);
-  // Serial.print("\ncanal ");
-  // Serial.print(canal);
-  // Serial.print(" valor ");
-  // Serial.print(valor);
   digitalWrite(CS_SPI[canal], HIGH);
 }
