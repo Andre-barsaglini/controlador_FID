@@ -56,9 +56,8 @@ bool closeAfterRec = false; // o host fecha o socket apos receber a mensagem
 bool echo = true;           // a cada comando recebido devolve o comando
 bool use_LDAC = false;      // utiliza o LDAC para sincronizar as saidas
 
-char mensagemTcpIn[BUFFERLEN] = "";  // variavel global com a mensagem recebiada via TCP
-char mensagemTcpOut[BUFFERLEN] = ""; // ultima mensagem enviada via TCP
-int valorRecebido = 1;               // armazena o valor recebido via TCP em um int
+char mensagemTcpIn[BUFFERLEN] = ""; // variavel global com a mensagem recebiada via TCP
+int valorRecebido = 1;              // armazena o valor recebido via TCP em um int
 
 // tasks
 TaskHandle_t taskTcp, taskCheckConn, taskDacs;
@@ -301,6 +300,11 @@ void evaluate()
     if (strncmp(mensagemTcpIn, estado_DACs, BUFFERLEN) != 0)
     {
       stageChanges();
+      if (echo)
+      {
+        cl.print("\n");
+        cl.print(mensagemTcpIn);
+      }
     }
   }
   else if (strncmp(mensagemTcpIn, "R", 1) == 0)
@@ -414,7 +418,7 @@ void changeDacs()
 void dacUpdate(int canal, int valor)
 {
   digitalWrite(CS_SPI[canal], LOW);
-  // delay(100);
+  delay(100);
   myDac.analogWrite(valor);
   digitalWrite(CS_SPI[canal], HIGH);
 }
