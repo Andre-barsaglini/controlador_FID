@@ -418,8 +418,8 @@ void changeDacs()
 void dacUpdate(int canal, int valor)
 {
   digitalWrite(CS_SPI[canal], LOW);
-  delay(1);
+  delay(10);
   myDac.analogWrite(valor);
   digitalWrite(CS_SPI[canal], HIGH);
-  delay(1);
+  delay(10);
 }
